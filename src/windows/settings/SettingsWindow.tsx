@@ -1,4 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { shortcutFromKeys } from "../../domain/shortcut";
 import type { Effort, Model, Settings, Style } from "../../domain/types";
 import { getSettings, saveSettings } from "../../ipc";
 
@@ -98,19 +99,8 @@ export function SettingsWindow() {
   );
 }
 
-const MODIFIER_CODES = /^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/;
-
 function recordShortcut(event: KeyboardEvent): string | null {
   if (event.key === "Tab") return null;
   event.preventDefault();
-  if (MODIFIER_CODES.test(event.code)) return null;
-  const modifiers = [
-    event.ctrlKey && "Control",
-    event.altKey && "Alt",
-    event.shiftKey && "Shift",
-    event.metaKey && "Command",
-  ].filter(Boolean);
-  if (modifiers.length === 0) return null;
-  const key = event.code.replace(/^Key/, "").replace(/^Digit/, "");
-  return [...modifiers, key].join("+");
+  return shortcutFromKeys(event);
 }
