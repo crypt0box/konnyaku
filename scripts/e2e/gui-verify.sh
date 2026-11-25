@@ -183,6 +183,21 @@ check 1b-image "failed image became the alt + ブラウザで開く box ($box)" 
   test "$box" = "Missing route sketch|ブラウザで開く|https://www.rust-lang.org/this-image-does-not-exist.png"
 check 1b-clipboard "clipboard byte-identical after the capture" cmp -s "$out/clip-before.txt" "$out/clip-after.txt"
 
+"$out/pbtool" sentinel >/dev/null
+"$out/pbtool" digest >"$out/clip-before.txt"
+rm -f "$dump"
+activate TextEdit "$out/short.rtf"
+click_content TextEdit
+keys cmd+a
+send --debug-keys ctrl+j 2
+wait_until 90 has_dump
+sleep 1
+"$out/pbtool" digest >"$out/clip-after.txt"
+cp "$dump" "$out/1c-double-press.html"
+check 1c-double-press "two quick presses translate the TextEdit selection (ZX-81 present, not the clipboard sentinel)" \
+  eval 'contains "$dump" ZX-81 && ! contains "$dump" sentinel'
+check 1c-double-press "clipboard byte-identical after two quick presses" cmp -s "$out/clip-before.txt" "$out/clip-after.txt"
+
 translate_selection TextEdit "$out/long.rtf"
 if wait_until 15 has_translation && wait_until 10 front_app konnyaku; then
   child=$(translations)

@@ -3,14 +3,14 @@ use serde::Serialize;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use macos::capture;
+pub use macos::{capture, own_app_is_frontmost};
 #[cfg(all(target_os = "macos", not(debug_assertions)))]
 pub use macos::prompt_for_accessibility_if_needed;
 
 #[cfg(not(target_os = "macos"))]
 mod windows;
 #[cfg(not(target_os = "macos"))]
-pub use windows::capture;
+pub use windows::{capture, own_app_is_frontmost};
 #[cfg(all(not(target_os = "macos"), not(debug_assertions)))]
 pub use windows::prompt_for_accessibility_if_needed;
 

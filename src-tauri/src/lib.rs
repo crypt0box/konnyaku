@@ -5,6 +5,7 @@ mod settings;
 mod translator;
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::ipc::Channel;
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -25,15 +26,27 @@ const TRANSLATE_NOW_ARG: &str = "--translate-now";
 struct AppState {
     settings: Mutex<Settings>,
     translator: Translator,
+    capturing: AtomicBool,
 }
 
 /// キャプチャ, then show the 翻訳ウィンドウ. Capture must run before the window takes focus,
 /// because the synthetic copy goes to the frontmost app.
 fn capture_and_show(app: &AppHandle) {
+    // With konnyaku frontmost, the copy would read its own window and replace the 訳文 with nothing.
+    if capture::own_app_is_frontmost() {
+        return show_translation_window(app);
+    }
+    // Two captures at once interleave snapshot, copy and restore on the one pasteboard, losing the user's
+    // clipboard, so a press during a capture is dropped.
+    if app.state::<AppState>().capturing.swap(true, Ordering::SeqCst) {
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
-        app.state::<AppState>().translator.cancel();
+        let state = app.state::<AppState>();
+        state.translator.cancel();
         let captured = capture::capture();
+        state.capturing.store(false, Ordering::SeqCst);
         let _ = app.emit_to(TRANSLATION_WINDOW, "captured", captured);
         show_translation_window(&app);
     });
@@ -229,6 +242,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(AppState {
         settings: Mutex::new(settings),
         translator: Translator::default(),
+        capturing: AtomicBool::new(false),
     });
 
     app.set_menu(build_menu(handle)?)?;

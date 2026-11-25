@@ -10,7 +10,7 @@ use objc2_app_kit::{
     NSBitmapImageFileType, NSBitmapImageRep, NSCharacterEncodingDocumentAttribute,
     NSDocumentTypeDocumentAttribute, NSHTMLTextDocumentType, NSPasteboard, NSPasteboardItem,
     NSPasteboardType, NSPasteboardTypeHTML, NSPasteboardTypePNG, NSPasteboardTypeRTF,
-    NSPasteboardTypeString, NSPasteboardTypeTIFF, NSPasteboardWriting,
+    NSPasteboardTypeString, NSPasteboardTypeTIFF, NSPasteboardWriting, NSRunningApplication,
 };
 use objc2_core_graphics::{
     CGEvent, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
@@ -41,6 +41,10 @@ pub fn prompt_for_accessibility_if_needed() {
     let value = NSNumber::numberWithBool(true);
     let options = NSDictionary::<NSString, NSNumber>::from_slices(&[&*key], &[&*value]);
     unsafe { AXIsProcessTrustedWithOptions(Retained::as_ptr(&options).cast()) };
+}
+
+pub fn own_app_is_frontmost() -> bool {
+    NSRunningApplication::currentApplication().isActive()
 }
 
 pub fn capture() -> Capture {

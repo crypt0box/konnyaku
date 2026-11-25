@@ -1,5 +1,9 @@
 use super::{Capture, CaptureSource};
 
+pub fn own_app_is_frontmost() -> bool {
+    false
+}
+
 pub fn capture() -> Capture {
     Capture {
         html: None,

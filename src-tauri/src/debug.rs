@@ -22,7 +22,7 @@ unsafe extern "C" {
 }
 
 enum Command {
-    Keys(Combo),
+    Keys(Combo, usize),
     Click(NSPoint),
     Drag(NSPoint, NSPoint),
     Eval {
@@ -46,7 +46,7 @@ pub fn handle(app: &AppHandle, args: &[String]) -> bool {
         return false;
     };
     match parse(&args[position..]) {
-        Ok(Command::Keys(combo)) => post_keys(&combo),
+        Ok(Command::Keys(combo, times)) => post_keys(&combo, times),
         Ok(Command::Click(at)) => post_click(at),
         Ok(Command::Drag(from, to)) => post_drag(from, to),
         Ok(Command::Eval { label, out, body }) => eval(app, &label, out, &body),
@@ -65,7 +65,13 @@ fn parse(args: &[String]) -> Result<Command, String> {
         arg(i)?.parse().map_err(|e| format!("not a number: {e}"))
     };
     match args[0].as_str() {
-        "--debug-keys" => parse_combo(&arg(1)?).map(Command::Keys),
+        "--debug-keys" => {
+            let times = match args.get(2) {
+                Some(times) => times.parse().map_err(|e| format!("not a count: {e}"))?,
+                None => 1,
+            };
+            Ok(Command::Keys(parse_combo(&arg(1)?)?, times))
+        }
         "--debug-click" => Ok(Command::Click(NSPoint::new(number(1)?, number(2)?))),
         "--debug-drag" => Ok(Command::Drag(
             NSPoint::new(number(1)?, number(2)?),
@@ -120,13 +126,15 @@ fn key_code(name: &str) -> Option<u16> {
     })
 }
 
-fn post_keys(combo: &Combo) {
+/// Repeated presses go out back to back, so the next press lands while the previous one is still being handled.
+fn post_keys(combo: &Combo, times: usize) {
     let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState);
-    for key_down in [true, false] {
+    let gap = Duration::from_millis(if times == 1 { 30 } else { 1 });
+    for key_down in std::iter::repeat_n([true, false], times).flatten() {
         let event = CGEvent::new_keyboard_event(source.as_deref(), combo.key, key_down);
         CGEvent::set_flags(event.as_deref(), combo.flags);
         CGEvent::post(CGEventTapLocation::HIDEventTap, event.as_deref());
-        sleep(Duration::from_millis(30));
+        sleep(gap);
     }
 }
 
