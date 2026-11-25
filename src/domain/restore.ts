@@ -27,7 +27,12 @@ function restoreLine(line: string, elements: NonTranslatedElement[]): string {
     const fenced = fence(element.lang, element.code).split("\n");
     return [alone[1] + fenced[0], ...fenced.slice(1).map((l) => indent + l)].join("\n");
   }
-  return line.replace(TOKEN_PATTERN, (_, id: string) => inline(elements[Number(id)]));
+  // A table row splits its cells at every unescaped pipe, even inside inline code, alt text, and URLs.
+  const inTableRow = /^\s*(?:>\s*)*\|/.test(line);
+  return line.replace(TOKEN_PATTERN, (_, id: string) => {
+    const markdown = inline(elements[Number(id)]);
+    return inTableRow ? markdown.replace(/\|/g, "\\|") : markdown;
+  });
 }
 
 function inline(element: NonTranslatedElement | undefined): string {

@@ -151,6 +151,18 @@ D <img srcset="https://e.com/d-320.png 320w, https://e.com/d-640.png 640w" alt="
     expect(view.querySelector("[src^='javascript'], [href^='javascript']")).toBeNull();
   });
 
+  it("keeps a table whose cells hold a pipe in inline code or alt text", () => {
+    const html = `<table><thead><tr><th>Op</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>a || b</code></td><td>logical <img src="https://e.com/or|icon.png" alt="x | y"></td></tr></tbody></table>`;
+    const doc = toSourceDocument({ html, source: "selection" })!;
+    const view = renderToDom(restore(doc.markdown, doc));
+    const rows = Array.from(view.querySelectorAll("table tr"), (tr) => tr.querySelectorAll("th, td").length);
+    expect(rows).toEqual([2, 2]);
+    expect(view.querySelector("td code")?.textContent).toBe("a || b");
+    expect(view.querySelector("td img")?.getAttribute("alt")).toBe("x | y");
+    expect(view.querySelector("td img")?.getAttribute("src")).toBe("https://e.com/or%7Cicon.png");
+  });
+
   it("keeps a table without a header row, as TextEdit and other RTF sources copy it", () => {
     // Shape of NSAttributedString's HTML export of a TextEdit table: no th, paragraphs inside cells.
     const cell = (text: string) => `<td valign="middle" class="td1"><p class="p3"><span class="s1">${text}</span></p></td>`;
