@@ -1,0 +1,13 @@
+# Backlog
+
+Work that review found and deliberately left for later. One line each: where, then the intended fix.
+
+- `src/domain/types.ts:1`, `src-tauri/src/translator.rs:659`: generate the TS types from Rust (ts-rs or tauri-specta), delete the hand-written mirror and the JSON contract test, and decide whether `Capture.source` (`src-tauri/src/capture/mod.rs:34`, never read by the frontend) is used or removed.
+- `src-tauri/src/capture/mod.rs:1`, `src-tauri/src/translator.rs:393`, `src-tauri/src/translator.rs:205`, `src-tauri/src/lib.rs:172`, `src-tauri/src/lib.rs:160`: move OS-specific code into a platform module (`platform/macos`, `platform/windows`, `compile_error!` elsewhere) that owns capture, the Accessibility prompt, claude candidate paths, the child PATH, the app menu and dismiss behavior.
+- `src-tauri/src/translator.rs:223`: split translator.rs into process management and a typed stream-json parser (`#[derive(Deserialize)] enum Line`), collapse the `Stream` state, send `resetsAt` as unix seconds and drop chrono (`src-tauri/src/translator.rs:266`).
+- `src-tauri/src/debug.rs:1`, `src-tauri/src/dump.rs:1`, `src-tauri/src/lib.rs:26`: put the debug and e2e hooks behind one cargo feature `e2e` in a single `dev.rs`, and express dev-build policy with `cfg!()` expressions.
+- `src/windows/translation/TranslationWindow.tsx:157`, `src/windows/settings/SettingsWindow.tsx:21`, `src/windows/translation/useTranslation.ts:14`, `src/domain/render.ts:26`, `src/domain/prompt.test.ts:6`: one `useSettings` hook, one stop function per job in useTranslation, a pure tested `initialView(capture)`, `docOf(view)` (replaces `TranslationWindow.tsx:29`), a generic Choice select (`SettingsWindow.tsx:54`), move the render.ts UI strings to windows/translation, and prompt tests that assert behavior instead of wording.
+- `src-tauri/src/capture/macos.rs:25`: `KEY_C = 8` is a layout-dependent virtual keycode (Dvorak sends Cmd+J); resolve the keycode for "c" from the current keyboard layout.
+- `src/domain/restore.ts:32`: a token the model drops silently loses its image or code; detect missing tokens and append the lost elements or show a notice.
+- `src-tauri/src/capture/macos.rs:22`: a copy slower than `COPY_TIMEOUT` (400 ms) translates the stale clipboard and the late copy is never restored; keep watching changeCount after the timeout and restore the snapshot when the late copy lands.
+- `src-tauri/src/capture/macos.rs:173`: restoring the snapshot bumps changeCount, which may defeat a password manager's clipboard auto-clear (unverified); check against 1Password and Bitwarden and skip the restore when the snapshot was concealed.
