@@ -2,9 +2,8 @@ import DOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true });
-const defaultValidateLink = markdown.validateLink.bind(markdown);
-// file: images must parse as images so they can become an unloadable-image box instead of raw Markdown text.
-markdown.validateLink = (url) => /^\s*file:/i.test(url) || defaultValidateLink(url);
+// A rejected URL leaves its image as raw Markdown text. DOMPurify and the checks below decide what may load or open.
+markdown.validateLink = () => true;
 
 const LOADABLE_IMAGE = /^(?:https?:|data:image\/)/i;
 export const OPENABLE_LINK = /^(?:https?:|mailto:)/i;

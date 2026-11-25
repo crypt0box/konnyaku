@@ -34,7 +34,7 @@ export function toSourceDocument(capture: Capture): SourceDocument | null {
     if (el.tagName === "PRE") {
       replaceWithToken(el, { kind: "codeBlock", lang: codeLanguage(el), code: preText(el) }, true);
     } else if (el.tagName === "IMG") {
-      const src = el.getAttribute("src")?.trim();
+      const src = imageSrc(el);
       if (src) replaceWithToken(el, { kind: "image", src, alt: el.getAttribute("alt")?.trim() ?? "" }, false);
       else el.remove();
     } else {
@@ -69,6 +69,16 @@ function fitTablesToGfm(body: HTMLElement) {
     const first = table.rows[0];
     if (first && first.parentElement?.tagName !== "THEAD") table.createTHead().append(first);
   }
+}
+
+const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:/i;
+
+/** Lazy-loading pages keep a placeholder in src and the real image in data-src, data-lazy-src, or srcset. */
+function imageSrc(img: Element): string | undefined {
+  const attr = (name: string) => img.getAttribute(name)?.trim();
+  const candidates = (srcset: string | undefined) => srcset?.split(",").map((c) => c.trim().split(/\s+/)[0]) ?? [];
+  const lazy = [attr("data-src"), attr("data-lazy-src"), ...candidates(attr("data-srcset")), ...candidates(attr("srcset"))];
+  return lazy.find((url) => url && ABSOLUTE_URL.test(url)) ?? (attr("src") || undefined);
 }
 
 function codeLanguage(pre: Element): string {

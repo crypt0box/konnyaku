@@ -121,6 +121,36 @@ describe("toSourceDocument", () => {
     expect(isMostlyJapanese(doc)).toBe(false);
   });
 
+  it("takes the real image of a lazy-loading page instead of its placeholder", () => {
+    const placeholder = "data:image/gif;base64,R0lGODlhAQABAAAAACw=";
+    const doc = toSourceDocument({
+      html: `<p>A <img src="${placeholder}" data-src="https://e.com/real.png" alt="a">
+B <img src="${placeholder}" data-lazy-src="https://e.com/lazy.png" alt="b">
+C <img srcset="/relative.png 1x, https://e.com/c-640.png 2x" alt="c">
+D <img srcset="https://e.com/d-320.png 320w, https://e.com/d-640.png 640w" alt="d"></p>`,
+      source: "selection",
+    })!;
+    expect(doc.elements.map((e) => (e.kind === "image" ? e.src : e.kind))).toEqual([
+      "https://e.com/real.png",
+      "https://e.com/lazy.png",
+      "https://e.com/c-640.png",
+      "https://e.com/d-320.png",
+    ]);
+  });
+
+  it("renders an image the window cannot link as a box, never as raw Markdown", () => {
+    const doc = toSourceDocument({
+      html: `<p>Icons <img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=" alt="svg">
+<img src="data:image/avif;base64,AAAA" alt="avif"> <img src="javascript:alert(1)" alt="js"> here</p>`,
+      source: "selection",
+    })!;
+    const view = renderToDom(restore(doc.markdown, doc));
+    expect(view.textContent).not.toContain("![");
+    expect(Array.from(view.querySelectorAll("img"), (img) => img.getAttribute("alt"))).toEqual(["svg", "avif"]);
+    expect(view.querySelector(".unloadable-image")?.textContent).toBe("js");
+    expect(view.querySelector("[src^='javascript'], [href^='javascript']")).toBeNull();
+  });
+
   it("keeps a table without a header row, as TextEdit and other RTF sources copy it", () => {
     // Shape of NSAttributedString's HTML export of a TextEdit table: no th, paragraphs inside cells.
     const cell = (text: string) => `<td valign="middle" class="td1"><p class="p3"><span class="s1">${text}</span></p></td>`;
