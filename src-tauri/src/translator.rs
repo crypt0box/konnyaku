@@ -301,19 +301,37 @@ fn login_shell() -> &'static LoginShell {
     static SHELL: OnceLock<LoginShell> = OnceLock::new();
     SHELL.get_or_init(|| {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let script = format!(
+            r#"printf '{PATH_MARK}%s{END_MARK}\n' "$PATH"; printf '{CLAUDE_MARK}%s{END_MARK}\n' "$(command -v claude)""#
+        );
         let output = Command::new(shell)
-            .args(["-lc", r#"printf '%s\n' "$PATH"; command -v claude"#])
+            .args(["-lc", &script])
             .stdin(Stdio::null())
             .output();
         let stdout = output
             .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
             .unwrap_or_default();
-        let mut lines = stdout.lines().map(str::trim).filter(|l| !l.is_empty());
-        LoginShell {
-            path: lines.next().map(str::to_owned),
-            claude: lines.next().map(PathBuf::from),
-        }
+        LoginShell::parse(&stdout)
     })
+}
+
+// Profile scripts may print anything, so the values are read only from between these marks.
+const PATH_MARK: &str = "<<konnyaku-path>>";
+const CLAUDE_MARK: &str = "<<konnyaku-claude>>";
+const END_MARK: &str = "<<konnyaku-end>>";
+
+impl LoginShell {
+    fn parse(stdout: &str) -> LoginShell {
+        let between = |mark: &str| {
+            let start = stdout.rfind(mark)? + mark.len();
+            let value = stdout[start..].split(END_MARK).next()?.trim();
+            (!value.is_empty()).then(|| value.to_owned())
+        };
+        LoginShell {
+            path: between(PATH_MARK),
+            claude: between(CLAUDE_MARK).map(PathBuf::from),
+        }
+    }
 }
 
 /// Runs the login shell ahead of the first translation so it does not add to that translation's latency.
@@ -441,6 +459,30 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn login_shell_values_survive_profile_output() {
+        let stdout = "Welcome back\nnvm: using node 22\n\
+            <<konnyaku-path>>/opt/homebrew/bin:/usr/bin<<konnyaku-end>>\n\
+            <<konnyaku-claude>>/Users/me/.local/bin/claude<<konnyaku-end>>\nbye\n";
+        let shell = LoginShell::parse(stdout);
+        assert_eq!(shell.path.as_deref(), Some("/opt/homebrew/bin:/usr/bin"));
+        assert_eq!(
+            shell.claude,
+            Some(PathBuf::from("/Users/me/.local/bin/claude"))
+        );
+    }
+
+    #[test]
+    fn login_shell_without_claude_or_output_yields_nothing() {
+        let shell = LoginShell::parse(
+            "<<konnyaku-path>>/usr/bin<<konnyaku-end>>\n<<konnyaku-claude>><<konnyaku-end>>\n",
+        );
+        assert_eq!(shell.path.as_deref(), Some("/usr/bin"));
+        assert_eq!(shell.claude, None);
+        let silent = LoginShell::parse("");
+        assert_eq!((silent.path, silent.claude), (None, None));
     }
 
     #[test]
