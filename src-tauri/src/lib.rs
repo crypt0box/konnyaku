@@ -120,21 +120,25 @@ fn translate(
     });
 }
 
+/// Esc in the 翻訳ウィンドウ: cancel and hide, then hand focus back to the app the 原文 came from.
 #[tauri::command]
-fn dismiss(app: AppHandle, state: tauri::State<AppState>) {
-    state.translator.cancel();
+fn dismiss(app: AppHandle) {
+    hide_translation_window(&app);
+    #[cfg(target_os = "macos")]
+    if !app
+        .get_webview_window(SETTINGS_WINDOW)
+        .is_some_and(|w| w.is_visible().unwrap_or(false))
+    {
+        let _ = app.hide();
+    }
+}
+
+fn hide_translation_window(app: &AppHandle) {
+    app.state::<AppState>().translator.cancel();
+    let _ = app.emit_to(TRANSLATION_WINDOW, "cancelled", ());
     if let Some(window) = app.get_webview_window(TRANSLATION_WINDOW) {
         let _ = window.hide();
     }
-    let settings_open = app
-        .get_webview_window(SETTINGS_WINDOW)
-        .is_some_and(|w| w.is_visible().unwrap_or(false));
-    #[cfg(target_os = "macos")]
-    if !settings_open {
-        // Hand focus back to the app the 原文 came from.
-        let _ = app.hide();
-    }
-    let _ = settings_open;
 }
 
 #[tauri::command]
@@ -217,6 +221,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             settings.shortcut
         );
     }
+    translator::warm_up();
     app.manage(AppState {
         settings: Mutex::new(settings),
         translator: Translator::default(),
@@ -276,8 +281,7 @@ pub fn run() {
                 && let WindowEvent::CloseRequested { api, .. } = event
             {
                 api.prevent_close();
-                window.app_handle().state::<AppState>().translator.cancel();
-                let _ = window.hide();
+                hide_translation_window(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![

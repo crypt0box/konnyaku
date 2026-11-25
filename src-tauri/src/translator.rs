@@ -169,7 +169,7 @@ fn spawn(claude: &Path, request: &Request) -> std::io::Result<(Child, TempDir)> 
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(path) = login_shell_path() {
+    if let Some(path) = &login_shell().path {
         command.env("PATH", path);
     }
     Ok((command.spawn()?, cwd))
@@ -289,22 +289,34 @@ fn tail(text: &str, max_bytes: usize) -> &str {
     &text[start..]
 }
 
-/// GUI apps do not inherit the shell's PATH, so ask the user's login shell once.
-fn login_shell_path() -> Option<String> {
-    static PATH: OnceLock<Option<String>> = OnceLock::new();
-    PATH.get_or_init(|| login_shell(r#"printf %s "$PATH""#))
-        .clone()
+/// What the user's login shell knows. GUI apps do not inherit the shell's PATH.
+struct LoginShell {
+    path: Option<String>,
+    claude: Option<PathBuf>,
 }
 
-fn login_shell(script: &str) -> Option<String> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
-    let output = Command::new(shell)
-        .args(["-lc", script])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    let text = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    (output.status.success() && !text.is_empty()).then_some(text)
+fn login_shell() -> &'static LoginShell {
+    static SHELL: OnceLock<LoginShell> = OnceLock::new();
+    SHELL.get_or_init(|| {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let output = Command::new(shell)
+            .args(["-lc", r#"printf '%s\n' "$PATH"; command -v claude"#])
+            .stdin(Stdio::null())
+            .output();
+        let stdout = output
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let mut lines = stdout.lines().map(str::trim).filter(|l| !l.is_empty());
+        LoginShell {
+            path: lines.next().map(str::to_owned),
+            claude: lines.next().map(PathBuf::from),
+        }
+    })
+}
+
+/// Runs the login shell ahead of the first translation so it does not add to that translation's latency.
+pub fn warm_up() {
+    thread::spawn(login_shell);
 }
 
 pub fn locate_claude(override_path: Option<&str>) -> Option<PathBuf> {
@@ -312,23 +324,20 @@ pub fn locate_claude(override_path: Option<&str>) -> Option<PathBuf> {
         let path = PathBuf::from(path);
         return is_executable(&path).then_some(path);
     }
-    if let Some(found) = login_shell("command -v claude")
-        .map(PathBuf::from)
-        .filter(|p| is_executable(p))
-    {
-        return Some(found);
-    }
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default();
-    [
-        home.join(".local/bin/claude"),
-        home.join(".claude/local/claude"),
-        PathBuf::from("/opt/homebrew/bin/claude"),
-        PathBuf::from("/usr/local/bin/claude"),
-    ]
-    .into_iter()
-    .find(|p| is_executable(p))
+    login_shell()
+        .claude
+        .clone()
+        .into_iter()
+        .chain([
+            home.join(".local/bin/claude"),
+            home.join(".claude/local/claude"),
+            PathBuf::from("/opt/homebrew/bin/claude"),
+            PathBuf::from("/usr/local/bin/claude"),
+        ])
+        .find(|p| is_executable(p))
 }
 
 #[cfg(unix)]
