@@ -2,11 +2,20 @@ import { PARTIAL_TOKEN_AT_END, TOKEN_PATTERN } from "./token";
 import type { NonTranslatedElement, SourceDocument } from "./types";
 
 export function restore(translatedMarkdown: string, doc: SourceDocument): string {
-  const complete = translatedMarkdown.replace(PARTIAL_TOKEN_AT_END, "");
+  const complete = withoutModelImages(translatedMarkdown.replace(PARTIAL_TOKEN_AT_END, ""));
   return complete
     .split("\n")
     .map((line) => restoreLine(line, doc.elements))
     .join("\n");
+}
+
+/**
+ * Every image of the 原文 comes back through a token, so an image the model wrote would only load a URL the 原文
+ * never had: a tracker, or an exfiltration channel for prompt-injected text. Inline images keep their alt text;
+ * reference images become plain links.
+ */
+function withoutModelImages(markdown: string): string {
+  return markdown.replace(/!\[((?:\\.|[^\\\]])*)\]\((?:\\.|[^\\)])*\)/g, "$1").replace(/!\[/g, "[");
 }
 
 function restoreLine(line: string, elements: NonTranslatedElement[]): string {

