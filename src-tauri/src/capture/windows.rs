@@ -5,12 +5,7 @@ pub fn own_app_is_frontmost() -> bool {
 }
 
 pub fn capture() -> Capture {
-    Capture {
-        html: None,
-        text: None,
-        image_png: None,
-        source: CaptureSource::Clipboard,
-    }
+    Capture::nothing(CaptureSource::Clipboard)
 }
 
 #[cfg(not(debug_assertions))]

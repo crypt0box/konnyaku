@@ -81,7 +81,20 @@ fn post_copy() {
     }
 }
 
+/// Password managers mark secrets with these (nspasteboard.org); a secret must never reach the translation engine.
+const PRIVATE_TYPES: [&str; 2] = [
+    "org.nspasteboard.ConcealedType",
+    "org.nspasteboard.TransientType",
+];
+
 fn read(pasteboard: &NSPasteboard, source: CaptureSource) -> Capture {
+    let types = pasteboard.types().map(|t| t.to_vec()).unwrap_or_default();
+    if types
+        .iter()
+        .any(|ty| PRIVATE_TYPES.contains(&ty.to_string().as_str()))
+    {
+        return Capture::nothing(source);
+    }
     let string = |ty: &NSPasteboardType| pasteboard.stringForType(ty).map(|s| s.to_string());
     let data = |ty: &NSPasteboardType| pasteboard.dataForType(ty);
 
@@ -172,6 +185,48 @@ impl Snapshot {
             .collect();
         if !items.is_empty() {
             pasteboard.writeObjects(&NSArray::from_retained_slice(&items));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use objc2_foundation::NSString;
+
+    use super::*;
+
+    /// A private pasteboard holding plain text plus `extra` marker types, so the test never touches the user's clipboard.
+    fn pasteboard_with(extra: &[&str]) -> Retained<NSPasteboard> {
+        let pasteboard = NSPasteboard::pasteboardWithUniqueName();
+        pasteboard.clearContents();
+        let text = NSString::from_str("hunter2");
+        pasteboard.setString_forType(&text, unsafe { NSPasteboardTypeString });
+        for ty in extra {
+            pasteboard.setString_forType(&NSString::from_str(""), &NSString::from_str(ty));
+        }
+        pasteboard
+    }
+
+    #[test]
+    fn reads_ordinary_clipboard_text() {
+        let pasteboard = pasteboard_with(&[]);
+        let capture = read(&pasteboard, CaptureSource::Clipboard);
+        assert_eq!(capture.text.as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn never_reads_what_a_password_manager_concealed() {
+        for marker in [
+            "org.nspasteboard.ConcealedType",
+            "org.nspasteboard.TransientType",
+        ] {
+            let pasteboard = pasteboard_with(&[marker]);
+            let capture = read(&pasteboard, CaptureSource::Clipboard);
+            assert_eq!(
+                (capture.html, capture.text, capture.image_png),
+                (None, None, None),
+                "{marker}"
+            );
         }
     }
 }

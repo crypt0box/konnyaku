@@ -33,3 +33,14 @@ pub struct Capture {
     pub image_png: Option<String>,
     pub source: CaptureSource,
 }
+
+impl Capture {
+    pub fn nothing(source: CaptureSource) -> Capture {
+        Capture {
+            html: None,
+            text: None,
+            image_png: None,
+            source,
+        }
+    }
+}
