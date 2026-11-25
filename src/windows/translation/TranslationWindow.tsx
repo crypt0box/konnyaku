@@ -21,7 +21,7 @@ export function TranslationWindow() {
   }, []);
 
   useEffect(() => {
-    if (view.kind !== "empty" && view.kind !== "translating" && contentRef.current) {
+    if (window.__KONNYAKU_DUMP__ && view.kind !== "empty" && view.kind !== "translating" && contentRef.current) {
       void debugDumpRendered(contentRef.current.outerHTML);
     }
   }, [view]);

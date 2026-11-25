@@ -1,6 +1,8 @@
 mod capture;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod debug;
+#[cfg(debug_assertions)]
+mod dump;
 mod settings;
 mod translator;
 
@@ -164,25 +166,6 @@ fn hide_translation_window(app: &AppHandle) {
     }
 }
 
-#[tauri::command]
-fn debug_dump_rendered(html: String) {
-    #[cfg(debug_assertions)]
-    {
-        let path = std::env::var_os("KONNYAKU_DUMP")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("konnyaku-rendered.html"));
-        match std::fs::write(&path, html) {
-            Ok(()) => eprintln!(
-                "konnyaku: dumped rendered translation to {}",
-                path.display()
-            ),
-            Err(error) => eprintln!("konnyaku: dump failed: {error}"),
-        }
-    }
-    #[cfg(not(debug_assertions))]
-    let _ = html;
-}
-
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let settings = MenuItem::with_id(app, "settings", "設定…", true, Some("CmdOrCtrl+,"))?;
     let app_menu = Submenu::with_items(
@@ -256,7 +239,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(dump::plugin());
+    let app = builder
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             #[cfg(all(debug_assertions, target_os = "macos"))]
             if debug::handle(app, &args) {
@@ -304,7 +290,8 @@ pub fn run() {
             save_settings,
             translate,
             dismiss,
-            debug_dump_rendered,
+            #[cfg(debug_assertions)]
+            dump::debug_dump_rendered,
             #[cfg(all(debug_assertions, target_os = "macos"))]
             debug::debug_eval_result
         ])
