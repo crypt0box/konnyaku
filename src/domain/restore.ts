@@ -13,7 +13,8 @@ function restoreLine(line: string, elements: NonTranslatedElement[]): string {
   const alone = /^(\s*(?:[-*+]\s+|\d+[.)]\s+|>\s*)*)⟦K(\d+)⟧\s*$/.exec(line);
   const element = alone ? elements[Number(alone[2])] : undefined;
   if (alone && element?.kind === "codeBlock") {
-    const indent = alone[1].replace(/[^\s]/g, " ");
+    // A blockquote ends at the first line without its `>`, so continuation lines repeat it; list markers become indentation.
+    const indent = alone[1].replace(/[-*+]|\d+[.)]/g, (marker) => " ".repeat(marker.length));
     const fenced = fence(element.lang, element.code).split("\n");
     return [alone[1] + fenced[0], ...fenced.slice(1).map((l) => indent + l)].join("\n");
   }

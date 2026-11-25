@@ -37,6 +37,22 @@ describe("restore", () => {
     expect(container.querySelectorAll("li")).toHaveLength(2);
   });
 
+  it("keeps a code block inside the blockquote the model placed it in, and the text after it", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMarkdown(restore("> 引用\n>\n> ⟦K1⟧\n\n本文です。\n\n## 見出し", doc));
+    expect(container.querySelector("blockquote pre code")?.textContent).toBe("echo ```\nexit 0\n");
+    expect(container.querySelector("blockquote + p")?.textContent).toBe("本文です。");
+    expect(container.querySelector("h2")?.textContent).toBe("見出し");
+    expect(container.querySelectorAll("pre")).toHaveLength(1);
+  });
+
+  it("keeps a code block in a list item nested in a blockquote", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMarkdown(restore("> - 手順\n>\n>   ⟦K1⟧\n\n後の段落", doc));
+    expect(container.querySelector("blockquote li pre code")?.textContent).toBe("echo ```\nexit 0\n");
+    expect(container.querySelector("blockquote + p")?.textContent).toBe("後の段落");
+  });
+
   it("drops tokens the document does not have", () => {
     expect(restore("あ⟦K9⟧い", doc)).toBe("あい");
   });
