@@ -77,17 +77,12 @@ impl Effort {
     }
 }
 
-pub enum Loaded {
-    FirstRun(Settings),
-    Saved(Settings),
-}
-
-pub fn load(app: &AppHandle) -> tauri::Result<Loaded> {
+pub fn load(app: &AppHandle) -> tauri::Result<Settings> {
     let store = app.store(STORE_FILE).map_err(into_tauri)?;
-    Ok(match store.get(STORE_KEY) {
-        None => Loaded::FirstRun(Settings::default()),
-        Some(value) => Loaded::Saved(serde_json::from_value(value).unwrap_or_default()),
-    })
+    Ok(store
+        .get(STORE_KEY)
+        .and_then(|value| serde_json::from_value(value).ok())
+        .unwrap_or_default())
 }
 
 pub fn save(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {

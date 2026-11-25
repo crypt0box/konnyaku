@@ -11,7 +11,7 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_window_state::StateFlags;
 
-use settings::{Loaded, Settings};
+use settings::Settings;
 use translator::{Request, TranslateEvent, Translator};
 
 const TRANSLATION_WINDOW: &str = "main";
@@ -203,18 +203,20 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle();
-    let settings = match settings::load(handle)? {
-        Loaded::Saved(settings) => settings,
-        Loaded::FirstRun(settings) => {
-            // A dev build must not register itself as a login item on the developer's machine.
-            #[cfg(not(debug_assertions))]
-            if settings.launch_at_login {
-                let _ = handle.autolaunch().enable();
-            }
-            settings::save(handle, &settings)?;
-            settings
+    let settings = settings::load(handle)?;
+    // Reconciled on every launch so the login item follows the setting even if an earlier run never applied it.
+    // Dev builds skip this so they never register themselves as a login item on the developer's machine.
+    #[cfg(not(debug_assertions))]
+    {
+        let autolaunch = handle.autolaunch();
+        if autolaunch.is_enabled().ok() != Some(settings.launch_at_login) {
+            let _ = if settings.launch_at_login {
+                autolaunch.enable()
+            } else {
+                autolaunch.disable()
+            };
         }
-    };
+    }
     if let Err(error) = register_shortcut(handle, &settings.shortcut) {
         eprintln!(
             "konnyaku: could not register shortcut {}: {error}",
