@@ -1,9 +1,9 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
+use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -55,15 +55,6 @@ struct Job {
     _cwd: TempDir,
 }
 
-/// The single in-flight translation. Starting a job or cancelling kills the previous child.
-#[derive(Default)]
-pub struct Translator {
-    slot: Arc<Mutex<Option<Job>>>,
-    next_id: AtomicU64,
-}
-
-const STDERR_TAIL_BYTES: usize = 2000;
-
 impl Job {
     fn kill(mut self) {
         let _ = self.child.kill();
@@ -71,78 +62,108 @@ impl Job {
     }
 }
 
-impl Translator {
-    pub fn cancel(&self) {
-        if let Some(job) = self.slot.lock().unwrap().take() {
+#[derive(Default)]
+struct Slot {
+    /// Id of the newest start; every start and cancel bumps it, so an older job knows it was superseded.
+    latest: u64,
+    job: Option<Job>,
+}
+
+impl Slot {
+    fn supersede(&mut self) -> u64 {
+        self.latest += 1;
+        if let Some(job) = self.job.take() {
             job.kill();
         }
-    }
-
-    pub fn start(&self, request: Request, emit: impl Fn(TranslateEvent) + Send + 'static) {
-        self.cancel();
-        let Some(claude) = locate_claude(request.claude_path.as_deref()) else {
-            emit(TranslateEvent::Error {
-                error: TranslateError::ClaudeNotFound,
-            });
-            return;
-        };
-        let (mut child, cwd) = match spawn(&claude, &request) {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                emit(TranslateEvent::Error {
-                    error: spawn_error(error),
-                });
-                return;
-            }
-        };
-
-        let mut stdin = child.stdin.take().expect("stdin is piped");
-        let stdout = child.stdout.take().expect("stdout is piped");
-        let mut stderr = child.stderr.take().expect("stderr is piped");
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let replaced = self.slot.lock().unwrap().replace(Job {
-            id,
-            child,
-            _cwd: cwd,
-        });
-        if let Some(job) = replaced {
-            job.kill();
-        }
-
-        let content = request.content;
-        thread::spawn(move || {
-            let _ = stdin.write_all(content.as_bytes());
-        });
-        let stderr_reader = thread::spawn(move || {
-            let mut buffer = Vec::new();
-            let _ = stderr.read_to_end(&mut buffer);
-            String::from_utf8_lossy(&buffer).into_owned()
-        });
-
-        let slot = Arc::clone(&self.slot);
-        thread::spawn(move || {
-            let mut stream = Stream::default();
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if let Some(text) = stream.apply(&line) {
-                    emit(TranslateEvent::Delta { text });
-                }
-            }
-            let stderr = stderr_reader.join().unwrap_or_default();
-            let Some(mut job) = take_job(&slot, id) else {
-                return;
-            };
-            let exited_ok = job.child.wait().map(|s| s.success()).unwrap_or(false);
-            emit(stream.finish(exited_ok, tail(&stderr, STDERR_TAIL_BYTES)));
-        });
+        self.latest
     }
 }
 
+/// The single in-flight translation. Starting a job or cancelling kills the previous child.
+#[derive(Default)]
+pub struct Translator {
+    slot: Arc<Mutex<Slot>>,
+}
+
+const STDERR_TAIL_BYTES: usize = 2000;
+
+impl Translator {
+    pub fn cancel(&self) {
+        self.slot.lock().unwrap().supersede();
+    }
+
+    /// Returns at once: finding claude can wait on the login shell, and the caller may be the main thread.
+    pub fn start(&self, request: Request, emit: impl Fn(TranslateEvent) + Send + 'static) {
+        let id = self.slot.lock().unwrap().supersede();
+        let slot = Arc::clone(&self.slot);
+        thread::spawn(move || run(&slot, id, request, emit));
+    }
+}
+
+fn run(slot: &Mutex<Slot>, id: u64, request: Request, emit: impl Fn(TranslateEvent)) {
+    let Some(claude) = locate_claude(request.claude_path.as_deref()) else {
+        emit(TranslateEvent::Error {
+            error: TranslateError::ClaudeNotFound,
+        });
+        return;
+    };
+    let (mut child, cwd) = match spawn(&claude, &request) {
+        Ok(spawned) => spawned,
+        Err(error) => {
+            emit(TranslateEvent::Error {
+                error: spawn_error(error),
+            });
+            return;
+        }
+    };
+
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let mut stderr = child.stderr.take().expect("stderr is piped");
+    let job = Job {
+        id,
+        child,
+        _cwd: cwd,
+    };
+    {
+        let mut slot = slot.lock().unwrap();
+        if slot.latest != id {
+            drop(slot);
+            return job.kill();
+        }
+        slot.job = Some(job);
+    }
+
+    let content = request.content;
+    thread::spawn(move || {
+        let _ = stdin.write_all(content.as_bytes());
+    });
+    let stderr_reader = thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stderr.read_to_end(&mut buffer);
+        String::from_utf8_lossy(&buffer).into_owned()
+    });
+
+    let mut stream = Stream::default();
+    for line in BufReader::new(stdout).lines() {
+        let Ok(line) = line else { break };
+        if let Some(text) = stream.apply(&line) {
+            emit(TranslateEvent::Delta { text });
+        }
+    }
+    let stderr = stderr_reader.join().unwrap_or_default();
+    let Some(mut job) = take_job(slot, id) else {
+        return;
+    };
+    let exited_ok = job.child.wait().map(|s| s.success()).unwrap_or(false);
+    emit(stream.finish(exited_ok, tail(&stderr, STDERR_TAIL_BYTES)));
+}
+
 /// None when the job was cancelled or replaced, so a killed child never reports an error.
-fn take_job(slot: &Mutex<Option<Job>>, id: u64) -> Option<Job> {
+fn take_job(slot: &Mutex<Slot>, id: u64) -> Option<Job> {
     let mut slot = slot.lock().unwrap();
-    if slot.as_ref().is_some_and(|job| job.id == id) {
-        slot.take()
+    if slot.job.as_ref().is_some_and(|job| job.id == id) {
+        slot.job.take()
     } else {
         None
     }
@@ -313,15 +334,36 @@ fn login_shell() -> &'static LoginShell {
         let script = format!(
             r#"printf '{PATH_MARK}%s{END_MARK}\n' "$PATH"; printf '{CLAUDE_MARK}%s{END_MARK}\n' "$(command -v claude)""#
         );
-        let output = Command::new(shell)
-            .args(["-lc", &script])
-            .stdin(Stdio::null())
-            .output();
-        let stdout = output
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default();
-        LoginShell::parse(&stdout)
+        let mut command = Command::new(shell);
+        command.args(["-lc", &script]);
+        LoginShell::parse(&stdout_within(command, LOGIN_SHELL_TIMEOUT).unwrap_or_default())
     })
+}
+
+/// A profile that hangs (a prompt, a network mount) must not hold every translation forever.
+const LOGIN_SHELL_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// The command's stdout, or None when it cannot start or has not finished within `timeout` (it is killed then).
+fn stdout_within(mut command: Command, timeout: Duration) -> Option<String> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take().expect("stdout is piped");
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = Vec::new();
+        let _ = stdout.read_to_end(&mut buffer);
+        let _ = sender.send(String::from_utf8_lossy(&buffer).into_owned());
+    });
+    let output = receiver.recv_timeout(timeout).ok();
+    if output.is_none() {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+    output
 }
 
 // Profile scripts may print anything, so the values are read only from between these marks.
@@ -383,6 +425,8 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::*;
 
     fn run(lines: &[&str], exited_ok: bool, stderr: &str) -> (String, TranslateEvent) {
@@ -472,14 +516,17 @@ mod tests {
 
     /// A fake claude that records its pid and waits to be killed.
     fn sleeping_claude(dir: &Path) -> Request {
+        let pids = dir.join("pids");
+        fake_claude(
+            dir,
+            &format!("echo $$ >> '{}'\nexec /bin/sleep 30", pids.display()),
+        )
+    }
+
+    fn fake_claude(dir: &Path, body: &str) -> Request {
         use std::os::unix::fs::PermissionsExt;
         let script = dir.join("claude");
-        let pids = dir.join("pids");
-        std::fs::write(
-            &script,
-            format!("#!/bin/sh\necho $$ >> '{}'\nexec /bin/sleep 30\n", pids.display()),
-        )
-        .unwrap();
+        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         Request {
             claude_path: Some(script.display().to_string()),
@@ -525,6 +572,63 @@ mod tests {
         let running: Vec<_> = pids.lines().filter(|pid| alive(pid)).collect();
         assert_eq!(running, Vec::<&str>::new(), "claude children left running");
         assert_eq!(*events.lock().unwrap(), vec![], "a killed job reported an event");
+    }
+
+    #[test]
+    fn cancel_before_claude_has_started_leaves_nothing_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let translator = Translator::default();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        translator.start(sleeping_claude(dir.path()), move |e| {
+            sink.lock().unwrap().push(e)
+        });
+        translator.cancel();
+        thread::sleep(Duration::from_secs(2));
+        let pids = std::fs::read_to_string(dir.path().join("pids")).unwrap_or_default();
+        assert_eq!(pids.lines().filter(|pid| alive(pid)).count(), 0);
+        assert_eq!(*events.lock().unwrap(), vec![]);
+    }
+
+    #[test]
+    fn the_newest_start_streams_to_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("output.jsonl");
+        std::fs::write(&output, format!("{DELTA_A}\n{SUCCESS}\n")).unwrap();
+        let translator = Translator::default();
+        let (sender, receiver) = mpsc::channel();
+        translator.start(sleeping_claude(dir.path()), |_| {});
+        translator.start(
+            fake_claude(dir.path(), &format!("cat '{}'", output.display())),
+            move |e| sender.send(e).unwrap(),
+        );
+        let timeout = Duration::from_secs(10);
+        assert_eq!(
+            receiver.recv_timeout(timeout).unwrap(),
+            TranslateEvent::Delta {
+                text: "こんにちは".into()
+            }
+        );
+        assert_eq!(
+            receiver.recv_timeout(timeout).unwrap(),
+            TranslateEvent::Done { truncated: false }
+        );
+    }
+
+    #[test]
+    fn a_hanging_login_shell_is_abandoned_at_the_timeout() {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "echo partial; exec /bin/sleep 30"]);
+        let started = Instant::now();
+        assert_eq!(stdout_within(command, Duration::from_millis(300)), None);
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "echo done"]);
+        assert_eq!(
+            stdout_within(command, Duration::from_secs(5)).as_deref(),
+            Some("done\n")
+        );
     }
 
     #[test]
