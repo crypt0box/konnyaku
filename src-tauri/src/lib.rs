@@ -1,4 +1,6 @@
 mod capture;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod debug;
 mod settings;
 mod translator;
 
@@ -249,6 +251,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            if debug::handle(app, &args) {
+                return;
+            }
             #[cfg(debug_assertions)]
             if args.iter().any(|arg| arg == TRANSLATE_NOW_ARG) {
                 capture_and_show(app);
@@ -291,7 +297,9 @@ pub fn run() {
             save_settings,
             translate,
             dismiss,
-            debug_dump_rendered
+            debug_dump_rendered,
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            debug::debug_eval_result
         ])
         .build(tauri::generate_context!())
         .expect("error while building konnyaku");
