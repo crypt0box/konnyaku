@@ -304,11 +304,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building konnyaku");
 
-    app.run(|app, event| {
+    app.run(|app, event| match event {
+        // The process exits without dropping managed state, which would leave claude and its temp dir behind.
+        RunEvent::Exit => app.state::<AppState>().translator.cancel(),
         #[cfg(target_os = "macos")]
-        if let RunEvent::Reopen { .. } = event {
-            show_translation_window(app);
-        }
-        let _ = (app, event);
+        RunEvent::Reopen { .. } => show_translation_window(app),
+        _ => {}
     });
 }

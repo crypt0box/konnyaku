@@ -276,6 +276,20 @@ check 7-shortcut "old Control+J no longer triggers (front $(front_name))" eval '
 keys ctrl+shift+k
 check 7-shortcut "new Control+Shift+K triggers a translation" wait_until 90 has_dump
 
+translate_selection TextEdit "$out/long.rtf" ctrl+shift+k
+if wait_until 15 has_translation && wait_until 10 front_app konnyaku; then
+  child=$(translations)
+  cwd=$(lsof -a -p "$child" -d cwd -Fn | sed -n 's/^n//p')
+  pid=$(app_pid)
+  keys cmd+q
+  check 5-quit-translating "Cmd+Q during a translation quits (pid $pid gone)" wait_until 5 gone "$pid"
+  check 5-quit-translating "claude child $child killed on quit" wait_until 3 gone "$child"
+  check 5-quit-translating "claude's temp dir removed on quit ($cwd)" eval '[[ $cwd == */konnyaku-* ]] && [ ! -e "$cwd" ]'
+  launch
+else
+  fail 5-quit-translating "no in-flight claude child appeared (front: $(front_name))"
+fi
+
 keys cmd+comma
 wait_until 5 visible 設定
 js settings 'const input = document.querySelector("input[placeholder]");
