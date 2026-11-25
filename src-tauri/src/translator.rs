@@ -160,6 +160,8 @@ fn spawn(claude: &Path, request: &Request) -> std::io::Result<(Child, TempDir)> 
             "--tools",
             "",
             "--safe-mode",
+            // Without this every 原文 and 訳文 lands in ~/.claude/projects as a resumable transcript.
+            "--no-session-persistence",
             "--system-prompt",
             &request.system_prompt,
         ])
