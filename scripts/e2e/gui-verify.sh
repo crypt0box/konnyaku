@@ -307,9 +307,12 @@ fi
 
 keys cmd+comma
 wait_until 5 visible 設定
-js settings 'const input = document.querySelector("input[placeholder]");
-input.focus(); input.value = "/nonexistent/claude"; input.blur();
-await new Promise((r) => setTimeout(r, 300));' >/dev/null
+printf /nonexistent/claude | pbcopy
+js settings 'const input = document.querySelector("input[placeholder]"); input.focus(); input.select();' >/dev/null
+keys cmd+v
+pasted=$(js_value settings 'const input = document.querySelector("input[placeholder]"); const value = input.value;
+input.blur(); await new Promise((r) => setTimeout(r, 300)); return value')
+check 7-paste "Cmd+V pastes into the claude path field (got $pasted)" test "$pasted" = /nonexistent/claude
 check 7-claude-path "invalid claude path saved ($(setting claudePath))" test "$(setting claudePath)" = /nonexistent/claude
 translate_selection Safari "$out/page.html" ctrl+shift+k
 wait_until 30 has_dump

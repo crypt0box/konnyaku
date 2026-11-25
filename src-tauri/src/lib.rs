@@ -190,8 +190,14 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         app,
         "編集",
         true,
+        // WKWebView routes Cmd+Z/X/C/V/A through these items, so text fields need all of them.
         &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
             &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
             &PredefinedMenuItem::select_all(app, None)?,
         ],
     )?;
