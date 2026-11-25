@@ -14,6 +14,7 @@ export function toSourceDocument(capture: Capture): SourceDocument | null {
 
   const body = new DOMParser().parseFromString(html, "text/html").body;
   body.querySelectorAll(DROPPED_TAGS).forEach((el) => el.remove());
+  fitTablesToGfm(body);
 
   const elements: NonTranslatedElement[] = [];
   const replaceWithToken = (el: Element, element: NonTranslatedElement, block: boolean) => {
@@ -51,6 +52,23 @@ function sourceHtml(capture: Capture): string | null {
   if (capture.text && capture.text.trim() !== "") return plainTextAsMarkdown.render(capture.text);
   if (capture.imagePng) return `<img src="${capture.imagePng}" alt="">`;
   return null;
+}
+
+const CELL_BLOCKS = "p, div, br, ul, ol, li, h1, h2, h3, h4, h5, h6, blockquote";
+
+/**
+ * GFM tables need a header row and one-line cells, and turndown-plugin-gfm keeps any other table as raw HTML,
+ * which the renderer escapes into visible markup. RTF sources such as TextEdit never mark a header row and wrap
+ * every cell in a paragraph, so the first row becomes the header and cell blocks become inline text.
+ */
+function fitTablesToGfm(body: HTMLElement) {
+  for (const table of Array.from(body.querySelectorAll("table"))) {
+    for (const block of Array.from(table.querySelectorAll(CELL_BLOCKS))) {
+      block.replaceWith(" ", ...Array.from(block.childNodes), " ");
+    }
+    const first = table.rows[0];
+    if (first && first.parentElement?.tagName !== "THEAD") table.createTHead().append(first);
+  }
 }
 
 function codeLanguage(pre: Element): string {

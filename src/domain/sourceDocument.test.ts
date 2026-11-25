@@ -120,4 +120,26 @@ describe("toSourceDocument", () => {
     const doc = toSourceDocument({ html: '<p><a href="https://例え.jp/ひらがな">Read more</a></p>', source: "selection" })!;
     expect(isMostlyJapanese(doc)).toBe(false);
   });
+
+  it("keeps a table without a header row, as TextEdit and other RTF sources copy it", () => {
+    // Shape of NSAttributedString's HTML export of a TextEdit table: no th, paragraphs inside cells.
+    const cell = (text: string) => `<td valign="middle" class="td1"><p class="p3"><span class="s1">${text}</span></p></td>`;
+    const html = `<table cellspacing="0" cellpadding="0" class="t1"><tbody>
+<tr>${cell("<b>Part</b>")}${cell("<b>Interval</b>")}</tr>
+<tr>${cell("Gasket")}${cell("Every year")}</tr>
+<tr>${cell("Shower screen")}<td class="td1"><p class="p3">Every six</p><p class="p3">months<br>or sooner</p></td></tr>
+</tbody></table>`;
+    const doc = toSourceDocument({ html, source: "selection" })!;
+    const view = renderToDom(restore(doc.markdown, doc));
+
+    expect(view.textContent).not.toContain("<");
+    const rows = Array.from(view.querySelectorAll("table tr"), (tr) =>
+      Array.from(tr.querySelectorAll("th, td"), (c) => c.textContent),
+    );
+    expect(rows).toEqual([
+      ["Part", "Interval"],
+      ["Gasket", "Every year"],
+      ["Shower screen", "Every six months or sooner"],
+    ]);
+  });
 });
