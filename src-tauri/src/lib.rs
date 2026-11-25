@@ -73,10 +73,31 @@ fn open_settings_window(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-fn register_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+/// Makes the global shortcut and the login item match `settings`. Safe to repeat.
+fn reconcile(app: &AppHandle, settings: &Settings) -> Result<(), String> {
     let shortcuts = app.global_shortcut();
-    shortcuts.unregister_all().map_err(|e| e.to_string())?;
-    shortcuts.register(shortcut).map_err(|e| e.to_string())
+    shortcuts
+        .unregister_all()
+        .and_then(|()| shortcuts.register(settings.shortcut.as_str()))
+        .map_err(|e| {
+            format!(
+                "ショートカット「{}」を登録できません: {e}",
+                settings.shortcut
+            )
+        })?;
+    // Dev builds never register themselves as a login item on the developer's machine.
+    if cfg!(not(debug_assertions)) {
+        let autolaunch = app.autolaunch();
+        if autolaunch.is_enabled().ok() != Some(settings.launch_at_login) {
+            let result = if settings.launch_at_login {
+                autolaunch.enable()
+            } else {
+                autolaunch.disable()
+            };
+            result.map_err(|e| format!("ログイン時の起動を変更できません: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -91,25 +112,12 @@ fn save_settings(
     settings: Settings,
 ) -> Result<(), String> {
     let previous = state.settings.lock().unwrap().clone();
-    if settings.shortcut != previous.shortcut
-        && let Err(error) = register_shortcut(&app, &settings.shortcut)
-    {
-        let _ = register_shortcut(&app, &previous.shortcut);
-        return Err(format!(
-            "ショートカット「{}」を登録できません: {error}",
-            settings.shortcut
-        ));
+    let applied = reconcile(&app, &settings)
+        .and_then(|()| settings::save(&app, &settings).map_err(|e| e.to_string()));
+    if let Err(error) = applied {
+        let _ = reconcile(&app, &previous);
+        return Err(error);
     }
-    if settings.launch_at_login != previous.launch_at_login {
-        let autolaunch = app.autolaunch();
-        let result = if settings.launch_at_login {
-            autolaunch.enable()
-        } else {
-            autolaunch.disable()
-        };
-        result.map_err(|e| e.to_string())?;
-    }
-    settings::save(&app, &settings).map_err(|e| e.to_string())?;
     *state.settings.lock().unwrap() = settings.clone();
     let _ = app.emit("settings-changed", settings);
     Ok(())
@@ -219,24 +227,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle();
     let settings = settings::load(handle)?;
-    // Reconciled on every launch so the login item follows the setting even if an earlier run never applied it.
-    // Dev builds skip this so they never register themselves as a login item on the developer's machine.
-    #[cfg(not(debug_assertions))]
-    {
-        let autolaunch = handle.autolaunch();
-        if autolaunch.is_enabled().ok() != Some(settings.launch_at_login) {
-            let _ = if settings.launch_at_login {
-                autolaunch.enable()
-            } else {
-                autolaunch.disable()
-            };
-        }
-    }
-    if let Err(error) = register_shortcut(handle, &settings.shortcut) {
-        eprintln!(
-            "konnyaku: could not register shortcut {}: {error}",
-            settings.shortcut
-        );
+    // On every launch, so the login item follows the setting even if an earlier run never applied it.
+    if let Err(error) = reconcile(handle, &settings) {
+        eprintln!("konnyaku: {error}");
     }
     translator::warm_up();
     app.manage(AppState {
