@@ -4,7 +4,9 @@
 # rendered 訳文, screenshots the window, then restores the user's clipboard and quits the app.
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
-bundle="$here/../../src-tauri/target/debug/bundle/macos/konnyaku.app"
+bundle=$(cd "$here/../../src-tauri/target/debug/bundle/macos/konnyaku.app" && pwd -P)
+# Anchored to this dev bundle so a konnyaku installed in /Applications survives.
+app_process="^$(printf '%s' "$bundle/Contents/MacOS/konnyaku" | sed 's/[]\\.*^$+?(){}|[]/\\&/g')"
 out=${1:-$(mktemp -d)}
 mkdir -p "$out"
 
@@ -12,7 +14,7 @@ swiftc -O "$here/pbtool.swift" -o "$out/pbtool"
 swiftc -O "$here/winid.swift" -o "$out/winid"
 
 "$out/pbtool" save "$out/clipboard.plist"
-trap '"$out/pbtool" restore "$out/clipboard.plist"; pkill -f "konnyaku.app/Contents/MacOS/konnyaku" || true' EXIT
+trap '"$out/pbtool" restore "$out/clipboard.plist"; pkill -f "$app_process" || true' EXIT
 "$out/pbtool" html "$here/rich.html"
 
 rm -f "$out/rendered.html"

@@ -6,7 +6,9 @@
 # Usage: scripts/e2e/gui-verify.sh [out-dir]
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-bundle="$here/../../src-tauri/target/debug/bundle/macos/konnyaku.app"
+bundle=$(cd "$here/../../src-tauri/target/debug/bundle/macos/konnyaku.app" && pwd -P) || exit 1
+# Anchored to this dev bundle so a konnyaku installed in /Applications is never killed.
+app_process="^$(printf '%s' "$bundle/Contents/MacOS/konnyaku" | sed 's/[]\\.*^$+?(){}|[]/\\&/g')"
 support="$HOME/Library/Application Support/dev.konnyaku.app"
 socket=/tmp/dev_konnyaku_app_si.sock
 out=${1:-$(mktemp -d)}
@@ -44,7 +46,7 @@ quit_sources() {
 cleanup() {
   if [ -n "$(app_pid)" ]; then
     quit_sources
-    pkill -f "konnyaku.app/Contents/MacOS/konnyaku"
+    pkill -f "$app_process"
     sleep 1
   fi
   [ -n "$sources_launched" ] && echo "left running:$sources_launched"
@@ -88,7 +90,7 @@ wait_until() {
   done
 }
 
-app_pid() { pgrep -f "konnyaku.app/Contents/MacOS/konnyaku" | head -1; }
+app_pid() { pgrep -f "$app_process" | head -1; }
 front_name() { lsappinfo info -only name "$(lsappinfo front)" | sed 's/.*="\(.*\)"/\1/'; }
 front_app() { [ "$(front_name)" = "$1" ]; }
 activate() { open -a "$1" ${2:+"$2"} && wait_until 10 front_app "$1" && sleep 0.8; }
