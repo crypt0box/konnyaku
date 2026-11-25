@@ -71,6 +71,9 @@ fn open_settings_window(app: &AppHandle) -> tauri::Result<()> {
         .title("設定")
         .inner_size(460.0, 440.0)
         .resizable(false)
+        // Like the 翻訳ウィンドウ in tauri.conf.json: a persistent WebKit store would keep the domains and bytes
+        // of every image a 訳文 showed, and konnyaku keeps no history.
+        .incognito(true)
         .build()?;
     Ok(())
 }
