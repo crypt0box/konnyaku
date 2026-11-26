@@ -11,3 +11,6 @@ Work that review found and deliberately left for later. One line each: where, th
 - `src/domain/restore.ts:32`: a token the model drops silently loses its image or code; detect missing tokens and append the lost elements or show a notice.
 - `src-tauri/src/capture/macos.rs:22`: a copy slower than `COPY_TIMEOUT` (400 ms) translates the stale clipboard and the late copy is never restored; keep watching changeCount after the timeout and restore the snapshot when the late copy lands.
 - `src-tauri/src/capture/macos.rs:173`: restoring the snapshot bumps changeCount, which may defeat a password manager's clipboard auto-clear (unverified); check against 1Password and Bitwarden and skip the restore when the snapshot was concealed.
+- `src/domain/prompt.ts:20`: with model haiku the engine still refuses about 1 run in 30 because of the context Claude Code appends to the user turn (sonnet 0 of 12). Detect a refusal (no Japanese, mentions the request) and retry once, or keep haiku out of the model choices.
+- `scripts/e2e/gui-verify.sh`: on a Japanese-locale Mac TextEdit's window and app name are テキストエディット, so `winid TextEdit` finds nothing and `activate TextEdit` waits out its 10 s; match by bundle id instead.
+- `cargo fmt --check` fails in `src-tauri/src/capture/mod.rs`, `debug.rs`, `dump.rs` and `lib.rs`; run `cargo fmt` and add it to the gates.
