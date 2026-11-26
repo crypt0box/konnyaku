@@ -11,11 +11,14 @@ export function restore(translatedMarkdown: string, doc: SourceDocument): string
 
 /**
  * Every image of the 原文 comes back through a token, so an image the model wrote would only load a URL the 原文
- * never had: a tracker, or an exfiltration channel for prompt-injected text. Inline images keep their alt text;
- * reference images become plain links.
+ * never had: a tracker, or an exfiltration channel for prompt-injected text. Inline images keep their alt text.
+ * Every other `![` gets its `!` escaped, which turns reference images into plain links and leaves prose such as
+ * 注意![重要] as written.
  */
 function withoutModelImages(markdown: string): string {
-  return markdown.replace(/!\[((?:\\.|[^\\\]])*)\]\((?:\\.|[^\\)])*\)/g, "$1").replace(/!\[/g, "[");
+  return markdown
+    .replace(/!\[((?:\\.|[^\\\]])*)\]\((?:\\.|[^\\)])*\)/g, "$1")
+    .replace(/(\\*)!\[/g, (match, slashes: string) => (slashes.length % 2 ? match : `${slashes}\\![`));
 }
 
 function restoreLine(line: string, elements: NonTranslatedElement[]): string {
