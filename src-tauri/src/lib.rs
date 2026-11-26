@@ -22,8 +22,6 @@ use translator::{Request, TranslateEvent, Translator};
 const TRANSLATION_WINDOW: &str = "main";
 const SETTINGS_WINDOW: &str = "settings";
 const AUTOSTART_ARG: &str = "--autostarted";
-#[cfg(debug_assertions)]
-const TRANSLATE_NOW_ARG: &str = "--translate-now";
 
 struct AppState {
     settings: Mutex<Settings>,
@@ -255,11 +253,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             #[cfg(all(debug_assertions, target_os = "macos"))]
             if debug::handle(app, &args) {
-                return;
-            }
-            #[cfg(debug_assertions)]
-            if args.iter().any(|arg| arg == TRANSLATE_NOW_ARG) {
-                capture_and_show(app);
                 return;
             }
             let _ = args;

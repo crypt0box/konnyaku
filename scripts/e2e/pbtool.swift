@@ -27,16 +27,6 @@ func restore(_ path: String) {
   print("restored \(items.count) items")
 }
 
-func setHTML(_ path: String, plain: String) {
-  let html = try! String(contentsOfFile: path, encoding: .utf8)
-  pb.clearContents()
-  let item = NSPasteboardItem()
-  item.setString(html, forType: .html)
-  item.setString(plain, forType: .string)
-  pb.writeObjects([item])
-  print("set html (\(html.count) chars), changeCount \(pb.changeCount)")
-}
-
 /// One line per item and type with the data's SHA-256, so two clipboards compare byte for byte.
 func digest() {
   for (i, item) in (pb.pasteboardItems ?? []).enumerated() {
@@ -65,8 +55,7 @@ func sentinel() {
 switch args[1] {
 case "save": save(args[2])
 case "restore": restore(args[2])
-case "html": setHTML(args[2], plain: "plain fallback")
 case "digest": digest()
 case "sentinel": sentinel()
-default: print("usage: pbtool save|restore <plist> | html <file> | digest | sentinel")
+default: print("usage: pbtool save|restore <plist> | digest | sentinel")
 }
