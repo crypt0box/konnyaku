@@ -46,9 +46,14 @@ fn capture_and_show(app: &AppHandle) {
         let state = app.state::<AppState>();
         state.translator.cancel();
         let captured = capture::capture();
-        state.capturing.store(false, Ordering::SeqCst);
         let _ = app.emit_to(TRANSLATION_WINDOW, "captured", captured);
-        show_translation_window(&app);
+        // Off the main thread, show and set_focus only queue their work. The flag clears once they have run, so a
+        // press from then on meets the frontmost check instead of copying from konnyaku's own window.
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            show_translation_window(&handle);
+            handle.state::<AppState>().capturing.store(false, Ordering::SeqCst);
+        });
     });
 }
 
