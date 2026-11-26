@@ -73,12 +73,42 @@ function fitTablesToGfm(body: HTMLElement) {
 
 const ABSOLUTE_URL = /^[a-z][a-z\d+.-]*:/i;
 
+/** Lazy-loading pages put a data: URI or a tiny GIF or SVG in src and the real image elsewhere. */
+const PLACEHOLDER_SRC = /^data:|\.(?:gif|svg)(?:[?#]|$)/i;
+
 /** Lazy-loading pages keep a placeholder in src and the real image in data-src, data-lazy-src, or srcset. */
 function imageSrc(img: Element): string | undefined {
-  const attr = (name: string) => img.getAttribute(name)?.trim();
-  const candidates = (srcset: string | undefined) => srcset?.split(",").map((c) => c.trim().split(/\s+/)[0]) ?? [];
-  const lazy = [attr("data-src"), attr("data-lazy-src"), ...candidates(attr("data-srcset")), ...candidates(attr("srcset"))];
-  return lazy.find((url) => url && ABSOLUTE_URL.test(url)) ?? (attr("src") || undefined);
+  const attr = (name: string) => img.getAttribute(name)?.trim() || undefined;
+  const src = attr("src");
+  const lazy = [attr("data-src"), attr("data-lazy-src"), largestCandidate(attr("data-srcset")), largestCandidate(attr("srcset"))];
+  const real = lazy.find((url) => url && ABSOLUTE_URL.test(url));
+  if (src && ABSOLUTE_URL.test(src) && !(real && PLACEHOLDER_SRC.test(src))) return src;
+  return real ?? src;
+}
+
+/**
+ * Parses srcset as the HTML spec does: a URL runs to the next whitespace, so commas inside it (Cloudinary
+ * transforms, data: URIs) stay, and a comma after the descriptor ends the candidate.
+ */
+function largestCandidate(srcset: string | undefined): string | undefined {
+  if (!srcset) return undefined;
+  let best: { url: string; size: number } | undefined;
+  const url = /[\s,]*(\S+)/y;
+  let match: RegExpExecArray | null;
+  while ((match = url.exec(srcset))) {
+    let candidate = match[1];
+    let descriptor = "";
+    if (candidate.endsWith(",")) {
+      candidate = candidate.replace(/,+$/, "");
+    } else {
+      const end = srcset.indexOf(",", url.lastIndex);
+      descriptor = srcset.slice(url.lastIndex, end === -1 ? undefined : end);
+      url.lastIndex = end === -1 ? srcset.length : end + 1;
+    }
+    const size = Number.parseFloat(descriptor) || 1;
+    if (!best || size > best.size) best = { url: candidate, size };
+  }
+  return best?.url;
 }
 
 function codeLanguage(pre: Element): string {

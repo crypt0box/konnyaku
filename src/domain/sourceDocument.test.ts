@@ -134,7 +134,26 @@ D <img srcset="https://e.com/d-320.png 320w, https://e.com/d-640.png 640w" alt="
       "https://e.com/real.png",
       "https://e.com/lazy.png",
       "https://e.com/c-640.png",
-      "https://e.com/d-320.png",
+      "https://e.com/d-640.png",
+    ]);
+  });
+
+  it("keeps a good src, and reads srcset URLs that contain commas", () => {
+    const cloudinary = "https://res.cloudinary.com/demo/image/upload/c_scale,w_400/sample.jpg";
+    const wordpress = (w: number) => `https://e.com/wp-content/uploads/photo-${w}.jpg`;
+    const dataUri = "data:image/png;base64,iVBORw0KGgo=";
+    const doc = toSourceDocument({
+      html: `<p>A <img src="${cloudinary}" srcset="${cloudinary} 400w, https://res.cloudinary.com/demo/image/upload/c_scale,w_800/sample.jpg 800w" alt="a">
+B <img srcset="${wordpress(300)} 300w, ${wordpress(1024)} 1024w, ${wordpress(768)} 768w" alt="b">
+C <img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" data-src="${cloudinary}" alt="c">
+D <img srcset="${dataUri} 1x" alt="d"></p>`,
+      source: "selection",
+    })!;
+    expect(doc.elements.map((e) => (e.kind === "image" ? e.src : e.kind))).toEqual([
+      cloudinary,
+      wordpress(1024),
+      cloudinary,
+      dataUri,
     ]);
   });
 
