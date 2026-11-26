@@ -14,3 +14,8 @@ Work that review found and deliberately left for later. One line each: where, th
 - `src/domain/prompt.ts:20`: with model haiku the engine still refuses about 1 run in 30 because of the context Claude Code appends to the user turn (sonnet 0 of 12). Detect a refusal (no Japanese, mentions the request) and retry once, or keep haiku out of the model choices.
 - `scripts/e2e/gui-verify.sh`: on a Japanese-locale Mac TextEdit's window and app name are テキストエディット, so `winid TextEdit` finds nothing and `activate TextEdit` waits out its 10 s; match by bundle id instead.
 - `cargo fmt --check` fails in `src-tauri/src/capture/mod.rs`, `debug.rs`, `dump.rs` and `lib.rs`; run `cargo fmt` and add it to the gates.
+- `src-tauri/src/lib.rs:126`: when the stored shortcut cannot be registered, saving other settings succeeds and only logs it, so the UI never says Control+J is dead. Keep the registration error in AppState and show it in the settings window and the empty 翻訳ウィンドウ.
+- `src-tauri/src/lib.rs:53`: `capturing` clears after set_focus, but activation is asynchronous, so a second press within a few ms can still start a capture against konnyaku itself. Clear the flag on the window's `Focused(true)` event with a few-hundred-ms fallback.
+- `src/domain/language.ts:35`: short Chinese with long katakana names (「スーパーマリオ游戏」「这是《ドラゴンボール》的中文版。」) is judged already Japanese. In the katakana rule, refuse when simplified-only Han (这 们 戏 欢 …) is present.
+- `src/domain/sourceDocument.ts:85`: `src="about:blank"` and .png placeholders are not treated as placeholders, and a relative largest srcset candidate drops the image when no src exists.
+- `src/domain/restore.ts`: strip <konnyaku-source> tags if the engine echoes them, so they never show in the 訳文.
