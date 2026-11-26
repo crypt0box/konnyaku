@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { hasTranslatableText, isMostlyJapanese } from "../../domain/language";
-import { buildSystemPrompt } from "../../domain/prompt";
+import { buildSystemPrompt, buildUserMessage } from "../../domain/prompt";
 import { toSourceDocument } from "../../domain/sourceDocument";
 import type { Capture, SourceDocument } from "../../domain/types";
 import type { View } from "../../domain/view";
@@ -30,7 +30,7 @@ export function useTranslation(): View {
       setView((v) => (v.kind === "translating" && v.doc === doc ? { ...v, partial: text } : v));
     };
 
-    await translate(buildSystemPrompt(style), doc.markdown, (event) => {
+    await translate(buildSystemPrompt(style), buildUserMessage(doc.markdown), (event) => {
       if (!isCurrent()) return;
       switch (event.kind) {
         case "delta":
