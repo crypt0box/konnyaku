@@ -112,8 +112,18 @@ fn field<T: DeserializeOwned>(value: &Value, name: &str, default: T) -> T {
 
 pub fn save(app: &AppHandle, settings: &Settings) -> tauri::Result<()> {
     let store = app.store(STORE_FILE).map_err(into_tauri)?;
+    let previous = store.get(STORE_KEY);
     store.set(STORE_KEY, serde_json::to_value(settings)?);
-    store.save().map_err(into_tauri)
+    store.save().map_err(|error| {
+        // The plugin writes the in-memory store again on auto-save and on exit, which would persist the rejected change.
+        match previous {
+            Some(value) => store.set(STORE_KEY, value),
+            None => {
+                store.delete(STORE_KEY);
+            }
+        }
+        into_tauri(error)
+    })
 }
 
 fn into_tauri(error: tauri_plugin_store::Error) -> tauri::Error {
