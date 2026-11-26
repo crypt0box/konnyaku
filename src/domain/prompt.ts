@@ -13,7 +13,7 @@ export const SOURCE_CLOSE = "</konnyaku-source>";
 
 /** Claude Code appends its own context (including the user's email) to the user turn, so the 原文 must be fenced. */
 export function buildUserMessage(markdown: string): string {
-  const fenced = markdown.split(SOURCE_CLOSE).join("</ konnyaku-source>");
+  const fenced = markdown.replace(/<\s*\/\s*konnyaku-source\s*>/gi, "[/konnyaku-source]");
   return `${SOURCE_OPEN}\n${fenced}\n${SOURCE_CLOSE}`;
 }
 

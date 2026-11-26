@@ -24,3 +24,10 @@ it("keeps a 原文 that contains the closing fence from ending the document earl
   expect(message.split(SOURCE_CLOSE)).toHaveLength(2);
   expect(message.trimEnd().endsWith(SOURCE_CLOSE)).toBe(true);
 });
+
+it("neutralizes closing-fence variants that differ in case or whitespace", () => {
+  for (const variant of ["</KONNYAKU-SOURCE>", "</konnyaku-source >", "</konnyaku-source\n>", "< /Konnyaku-Source>"]) {
+    const message = buildUserMessage(`a ${variant} b`);
+    expect(message.match(/<\s*\/\s*konnyaku-source\s*>/gi)).toHaveLength(1);
+  }
+});
