@@ -425,8 +425,6 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
-
     use super::*;
 
     fn run(lines: &[&str], exited_ok: bool, stderr: &str) -> (String, TranslateEvent) {
@@ -514,121 +512,133 @@ mod tests {
         );
     }
 
-    /// A fake claude that records its pid and waits to be killed.
-    fn sleeping_claude(dir: &Path) -> Request {
-        let pids = dir.join("pids");
-        fake_claude(
-            dir,
-            &format!("echo $$ >> '{}'\nexec /bin/sleep 30", pids.display()),
-        )
-    }
+    /// These run real processes through /bin/sh, so they exist only where it does.
+    #[cfg(unix)]
+    mod processes {
+        use std::time::Instant;
 
-    fn fake_claude(dir: &Path, body: &str) -> Request {
-        use std::os::unix::fs::PermissionsExt;
-        let script = dir.join("claude");
-        std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        Request {
-            claude_path: Some(script.display().to_string()),
-            model: Model::Sonnet,
-            effort: Effort::Low,
-            system_prompt: String::new(),
-            content: String::new(),
+        use super::*;
+
+        /// A fake claude that records its pid and waits to be killed.
+        fn sleeping_claude(dir: &Path) -> Request {
+            let pids = dir.join("pids");
+            fake_claude(
+                dir,
+                &format!("echo $$ >> '{}'\nexec /bin/sleep 30", pids.display()),
+            )
         }
-    }
 
-    fn alive(pid: &str) -> bool {
-        Command::new("/bin/kill")
-            .args(["-0", pid])
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-    }
-
-    #[test]
-    fn concurrent_starts_then_cancel_leave_no_claude_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let translator = Arc::new(Translator::default());
-        let events = Arc::new(Mutex::new(Vec::new()));
-        for _ in 0..20 {
-            let barrier = Arc::new(std::sync::Barrier::new(2));
-            let starts: Vec<_> = (0..2)
-                .map(|_| {
-                    let (translator, barrier, events) =
-                        (translator.clone(), barrier.clone(), events.clone());
-                    let request = sleeping_claude(dir.path());
-                    thread::spawn(move || {
-                        barrier.wait();
-                        translator.start(request, move |e| events.lock().unwrap().push(e));
-                    })
-                })
-                .collect();
-            starts.into_iter().for_each(|t| t.join().unwrap());
-        }
-        thread::sleep(std::time::Duration::from_secs(2));
-        translator.cancel();
-        thread::sleep(std::time::Duration::from_secs(1));
-        let pids = std::fs::read_to_string(dir.path().join("pids")).unwrap();
-        let running: Vec<_> = pids.lines().filter(|pid| alive(pid)).collect();
-        assert_eq!(running, Vec::<&str>::new(), "claude children left running");
-        assert_eq!(*events.lock().unwrap(), vec![], "a killed job reported an event");
-    }
-
-    #[test]
-    fn cancel_before_claude_has_started_leaves_nothing_running() {
-        let dir = tempfile::tempdir().unwrap();
-        let translator = Translator::default();
-        let events = Arc::new(Mutex::new(Vec::new()));
-        let sink = events.clone();
-        translator.start(sleeping_claude(dir.path()), move |e| {
-            sink.lock().unwrap().push(e)
-        });
-        translator.cancel();
-        thread::sleep(Duration::from_secs(2));
-        let pids = std::fs::read_to_string(dir.path().join("pids")).unwrap_or_default();
-        assert_eq!(pids.lines().filter(|pid| alive(pid)).count(), 0);
-        assert_eq!(*events.lock().unwrap(), vec![]);
-    }
-
-    #[test]
-    fn the_newest_start_streams_to_completion() {
-        let dir = tempfile::tempdir().unwrap();
-        let output = dir.path().join("output.jsonl");
-        std::fs::write(&output, format!("{DELTA_A}\n{SUCCESS}\n")).unwrap();
-        let translator = Translator::default();
-        let (sender, receiver) = mpsc::channel();
-        translator.start(sleeping_claude(dir.path()), |_| {});
-        translator.start(
-            fake_claude(dir.path(), &format!("cat '{}'", output.display())),
-            move |e| sender.send(e).unwrap(),
-        );
-        let timeout = Duration::from_secs(10);
-        assert_eq!(
-            receiver.recv_timeout(timeout).unwrap(),
-            TranslateEvent::Delta {
-                text: "こんにちは".into()
+        fn fake_claude(dir: &Path, body: &str) -> Request {
+            use std::os::unix::fs::PermissionsExt;
+            let script = dir.join("claude");
+            std::fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+            Request {
+                claude_path: Some(script.display().to_string()),
+                model: Model::Sonnet,
+                effort: Effort::Low,
+                system_prompt: String::new(),
+                content: String::new(),
             }
-        );
-        assert_eq!(
-            receiver.recv_timeout(timeout).unwrap(),
-            TranslateEvent::Done { truncated: false }
-        );
-    }
+        }
 
-    #[test]
-    fn a_hanging_login_shell_is_abandoned_at_the_timeout() {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "echo partial; exec /bin/sleep 30"]);
-        let started = Instant::now();
-        assert_eq!(stdout_within(command, Duration::from_millis(300)), None);
-        assert!(started.elapsed() < Duration::from_secs(2));
+        fn alive(pid: &str) -> bool {
+            Command::new("/bin/kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        }
 
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", "echo done"]);
-        assert_eq!(
-            stdout_within(command, Duration::from_secs(5)).as_deref(),
-            Some("done\n")
-        );
+        #[test]
+        fn concurrent_starts_then_cancel_leave_no_claude_running() {
+            let dir = tempfile::tempdir().unwrap();
+            let translator = Arc::new(Translator::default());
+            let events = Arc::new(Mutex::new(Vec::new()));
+            for _ in 0..20 {
+                let barrier = Arc::new(std::sync::Barrier::new(2));
+                let starts: Vec<_> = (0..2)
+                    .map(|_| {
+                        let (translator, barrier, events) =
+                            (translator.clone(), barrier.clone(), events.clone());
+                        let request = sleeping_claude(dir.path());
+                        thread::spawn(move || {
+                            barrier.wait();
+                            translator.start(request, move |e| events.lock().unwrap().push(e));
+                        })
+                    })
+                    .collect();
+                starts.into_iter().for_each(|t| t.join().unwrap());
+            }
+            thread::sleep(std::time::Duration::from_secs(2));
+            translator.cancel();
+            thread::sleep(std::time::Duration::from_secs(1));
+            let pids = std::fs::read_to_string(dir.path().join("pids")).unwrap();
+            let running: Vec<_> = pids.lines().filter(|pid| alive(pid)).collect();
+            assert_eq!(running, Vec::<&str>::new(), "claude children left running");
+            assert_eq!(
+                *events.lock().unwrap(),
+                vec![],
+                "a killed job reported an event"
+            );
+        }
+
+        #[test]
+        fn cancel_before_claude_has_started_leaves_nothing_running() {
+            let dir = tempfile::tempdir().unwrap();
+            let translator = Translator::default();
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let sink = events.clone();
+            translator.start(sleeping_claude(dir.path()), move |e| {
+                sink.lock().unwrap().push(e)
+            });
+            translator.cancel();
+            thread::sleep(Duration::from_secs(2));
+            let pids = std::fs::read_to_string(dir.path().join("pids")).unwrap_or_default();
+            assert_eq!(pids.lines().filter(|pid| alive(pid)).count(), 0);
+            assert_eq!(*events.lock().unwrap(), vec![]);
+        }
+
+        #[test]
+        fn the_newest_start_streams_to_completion() {
+            let dir = tempfile::tempdir().unwrap();
+            let output = dir.path().join("output.jsonl");
+            std::fs::write(&output, format!("{DELTA_A}\n{SUCCESS}\n")).unwrap();
+            let translator = Translator::default();
+            let (sender, receiver) = mpsc::channel();
+            translator.start(sleeping_claude(dir.path()), |_| {});
+            translator.start(
+                fake_claude(dir.path(), &format!("cat '{}'", output.display())),
+                move |e| sender.send(e).unwrap(),
+            );
+            let timeout = Duration::from_secs(10);
+            assert_eq!(
+                receiver.recv_timeout(timeout).unwrap(),
+                TranslateEvent::Delta {
+                    text: "こんにちは".into()
+                }
+            );
+            assert_eq!(
+                receiver.recv_timeout(timeout).unwrap(),
+                TranslateEvent::Done { truncated: false }
+            );
+        }
+
+        #[test]
+        fn a_hanging_login_shell_is_abandoned_at_the_timeout() {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "echo partial; exec /bin/sleep 30"]);
+            let started = Instant::now();
+            assert_eq!(stdout_within(command, Duration::from_millis(300)), None);
+            assert!(started.elapsed() < Duration::from_secs(2));
+
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "echo done"]);
+            assert_eq!(
+                stdout_within(command, Duration::from_secs(5)).as_deref(),
+                Some("done\n")
+            );
+        }
     }
 
     #[test]
