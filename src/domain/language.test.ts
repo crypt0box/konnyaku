@@ -12,6 +12,10 @@ describe("isMostlyJapanese", () => {
     ["Kanji-heavy technical Japanese", "本論文では、大規模言語模型の推論効率向上手法を提案し、実験により有効性を検証した。", true],
     ["Kanji-heavy legal Japanese", "第三条 甲は乙に対し、本契約締結日から起算して三十日以内に代金全額を支払う。", true],
     ["Kanji-heavy Japanese headline", "東京都知事選挙の投票率は過去最低を更新した。", true],
+    ["Katakana-heavy Japanese title", "プログラミング言語入門", true],
+    ["Katakana-only Japanese title", "ダウンロード・センター", true],
+    // Kanji with almost no kana reads as Chinese too, so it goes to Claude rather than risk a false skip.
+    ["Kanji-only Japanese headline", "首相官邸で記者会見", false],
     ["Simplified Chinese", "这是一个中文句子，需要翻译成日语。", false],
     [
       "Chinese quoting a Japanese name in katakana",
