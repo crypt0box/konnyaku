@@ -2,6 +2,7 @@
 name = "konnyaku"
 version = "0.1.0"
 description = "Select foreign-language content anywhere and read it in Japanese"
+license = "MIT"
 edition = "2024"
 
 [lib]
